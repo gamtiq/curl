@@ -2,7 +2,7 @@
 
 /**
  * curl CommonJS Modules/1.1 loader
- * 
+ *
  * Licensed under the MIT License at:
  * 		http://www.opensource.org/licenses/mit-license.php
  */
@@ -10,11 +10,11 @@
 /**
  * @experimental
  */
-(function (global, document) {
+(function (global, document, globalEval) {
 
 define(/*=='curl/loader/cjsm11',==*/ function () {
 
-	var head, globalEval /*, findRequiresRx, myId*/;
+	var head, insertBeforeEl /*, findRequiresRx, myId*/;
 
 //	findRequiresRx = /require\s*\(\s*['"](\w+)['"]\s*\)/,
 
@@ -55,16 +55,16 @@ define(/*=='curl/loader/cjsm11',==*/ function () {
 //		return source;
 //	}
 
-	// evaluate in global context.
-	// see http://perfectionkills.com/global-eval-what-are-the-options/
-	globalEval = eval;
-
 	head = document && (document['head'] || document.getElementsByTagName('head')[0]);
+	// to keep IE from crying, we need to put scripts before any
+	// <base> elements, but after any <meta>. this should do it:
+	insertBeforeEl = head && head.getElementsByTagName('base')[0] || null;
 
-	function wrapSource (source, resourceId) {
+	function wrapSource (source, resourceId, fullUrl) {
+		var sourceUrl = fullUrl ? '////@ sourceURL=' + fullUrl.replace(/\s/g, '%20') + '.js' : '';
 		return "define('" + resourceId + "'," +
 			"['require','exports','module'],function(require,exports,module){" +
-			source + "\n});\n";
+			source + "\n});\n" + sourceUrl + "\n";
 	}
 
 	var injectSource = function (el, source) {
@@ -79,13 +79,12 @@ define(/*=='curl/loader/cjsm11',==*/ function () {
 		var el = document.createElement('script');
 		injectSource(el, source);
 		el.charset = 'utf-8';
-		// use insertBefore to keep IE from throwing Operation Aborted (thx Bryan Forbes!)
-		head.insertBefore(el, head.firstChild);
+		head.insertBefore(el, insertBeforeEl);
 	}
 
 	return {
-		'load': function (resourceId, require, loaded, config) {
-			// TODO: extract xhr from text! plugin and use that instead?
+		'load': function (resourceId, require, callback, config) {
+			// TODO: extract xhr from text! plugin and use that instead (after we upgrade to cram.js)
 			require(['text!' + resourceId + '.js', 'curl/_privileged'], function (source, priv) {
 				var moduleMap;
 
@@ -97,19 +96,20 @@ define(/*=='curl/loader/cjsm11',==*/ function () {
 				require(moduleMap, function () {
 
 					// wrap source in a define
-					source = wrapSource(source, resourceId);
+					source = wrapSource(source, resourceId, config['injectSourceUrl'] !== false && require.toUrl(resourceId));
 
-					if (config.injectScript) {
+					if (config['injectScript']) {
 						injectScript(source);
 					}
 					else {
+						//eval(source);
 						globalEval(source);
 					}
 
-					// call loaded now that the module is defined
-					loaded(require(resourceId));
+					// call callback now that the module is defined
+					callback(require(resourceId));
 
-				});
+				}, callback['error'] || function (ex) { throw ex; });
 
 			});
 		}
@@ -117,4 +117,4 @@ define(/*=='curl/loader/cjsm11',==*/ function () {
 
 });
 
-}(this, this.document));
+}(this, this.document, function () { /* FB needs direct eval here */ eval(arguments[0]); }));

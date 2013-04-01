@@ -20,24 +20,28 @@
  *  	});
  *
  */
+var require;
 define(/*=='curl/shim/dojo16',==*/ ['curl/_privileged', 'curl/domReady'], function (priv, domReady) {
 "use strict";
 
 	var _curl = priv['_curl'],
-		origExecuteDefFunc = priv['core'].executeDefFunc;
+		origCreateContext = priv['core'].createContext;
 
 	function duckPunchRequire (req) {
+		// create a ready method on `require`
 		if (!req['ready']){
 			req['ready'] = function (cb) {
 				domReady(cb);
 			};
 		}
+		// map non-standard nameToUrl to toUrl
 		if (!req['nameToUrl']) {
 			req['nameToUrl'] = function (name, ext) {
-				// map non-standard nameToUrl to toUrl
 				return req['toUrl'](name + (ext || ''));
 			};
 		}
+		// dojo 1.7 has a few unchecked `require.cache` usages
+		if (!req['cache']) req['cache'] = {};
 		return req;
 	}
 
@@ -45,10 +49,16 @@ define(/*=='curl/shim/dojo16',==*/ ['curl/_privileged', 'curl/domReady'], functi
 	// as a dependency
 	duckPunchRequire(_curl);
 
-	// override executeDefFunc to override "require" deps
-	priv['core'].executeDefFunc = function (def) {
+	// dojo 1.7 still expects a global `require`, so make sure they've got one
+	if (typeof require == 'undefined') {
+		require = _curl;
+	}
+
+	// override createContext to override "local require"
+	priv['core'].createContext = function () {
+		var def = origCreateContext.apply(this, arguments);
 		duckPunchRequire(def.require);
-		return origExecuteDefFunc(def);
+		return def;
 	};
 
 	return true;

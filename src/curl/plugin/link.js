@@ -65,7 +65,7 @@
 		return url.replace(isProtocolRelativeRx, protocol + '//');
 	}
 
-	define(/*=='link',==*/ ["./util/base"], function(basicUtil) {
+	define(/*=='curl/plugin/link',==*/ ["./util/base"], function(basicUtil) {
 	    
 	    return {
 
@@ -77,7 +77,7 @@
     		'load': function (resourceId, require, callback, config) {
     			var url, link, fix;
     
-    			url = require['toUrl'](basicUtil.nameWithExt(resourceId, 'css'));
+			    url = basicUtil.nameWithExt(require['toUrl'](resourceId), 'css');
     			fix = 'fixSchemalessUrls' in config ? config['fixSchemalessUrls'] : doc.location.protocol;
     			url = fix ? fixProtocol(url, fix) : url;
     			link = createLink(doc, url);

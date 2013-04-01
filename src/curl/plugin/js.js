@@ -28,54 +28,43 @@
  * http://wiki.whatwg.org/wiki/Dynamic_Script_Execution_Order
  *
  */
-(function (global, doc) {
+(function (global, doc, testGlobalVar) {
+define(/*=='curl/plugin/js',==*/ ['curl/_privileged', './util/base'], function (priv, basicUtil) {
 "use strict";
 	var cache = {},
 		queue = [],
 		supportsAsyncFalse = doc && doc.createElement('script').async == true,
-		readyStates = { 'loaded': 1, 'interactive': 1, 'complete': 1 },
-		orsc = 'onreadystatechange',
-		head = doc && (doc['head'] || doc.getElementsByTagName('head')[0]),
+		Promise,
 		waitForOrderedScript,
 		undef;
 
-	// TODO: find a way to reuse the loadScript from curl.js
+	Promise = priv['Promise'];
+
 	function loadScript (def, success, failure) {
 		// script processing rules learned from RequireJS
 
-		var deadline, el;
+		var deadline, completed, el;
 
 		// default deadline is very far in the future (5 min)
 		// devs should set something reasonable if they want to use it
-		deadline = new Date().valueOf() + (def.timeoutMsec || 300) * 1000;
-
-		// insert script
-		el = doc.createElement('script');
+		deadline = new Date().valueOf() + (def.timeoutMsec || 300000);
 
 		// initial script processing
-		function process (ev) {
-			ev = ev || global.event;
-			// detect when it's done loading
-			if (ev.type == 'load' || readyStates[el.readyState]) {
-				// release event listeners
-				el.onload = el[orsc] = el.onerror = "";
-				if (def.exports) def.resolved = testGlobalVar(def.exports);
-				if (!def.exports || def.resolved) {
-					success(el);
-				}
-				else {
-					fail();
-				}
+		function process () {
+			completed = true;
+			if (def.exports) def.resolved = testGlobalVar(def.exports);
+			if (!def.exports || def.resolved) {
+				success(el); // pass el so it can be removed (text/cache)
+			}
+			else {
+				failure();
 			}
 		}
 
-		function fail () {
-			// some browsers send an event, others send a string,
-			// but none of them send anything useful, so just say we failed:
-			el.onload = el[orsc] = el.onerror = "";
-			if (failure) {
-				failure(new Error('Script error or http error: ' + def.url));
-			}
+		function fail (ex) {
+			// Exception is squashed by curl.js unfortunately
+			completed = true;
+			failure(ex);
 		}
 
 		// some browsers (Opera and IE6-8) don't support onerror and don't fire
@@ -84,31 +73,19 @@
 		// is defined (see below)
 		function poller () {
 			// if the script loaded
-			if (el.onload && readyStates[el.readyState]) {
-				process({});
-			}
-			// if neither process or fail as run and our deadline is in the past
-			else if (el.onload && deadline < new Date()) {
-				fail();
-			}
-			else {
-				setTimeout(poller, 10);
+			if (!completed) {
+				// if neither process or fail as run and our deadline is in the past
+				if (deadline < new Date()) {
+					failure();
+				}
+				else {
+					setTimeout(poller, 10);
+				}
 			}
 		}
 		if (failure && def.exports) setTimeout(poller, 10);
 
-		// set type first since setting other properties could
-		// prevent us from setting this later
-		el.type = def.mimetype || 'text/javascript';
-		// using dom0 event handlers instead of wordy w3c/ms
-		el.onload = el[orsc] = process;
-		el.onerror = fail;
-		el.charset = def.charset || 'utf-8';
-		el.async = !def.order;
-		el.src = def.url;
-
-		// use insertBefore to keep IE from throwing Operation Aborted (thx Bryan Forbes!)
-		head.insertBefore(el, head.firstChild);
+		el = priv['core'].loadScript(def, process, fail);
 
 	}
 
@@ -123,91 +100,98 @@
 					// go get it (from cache hopefully)
 					fetch.apply(null, next);
 				}
-				promise['resolve'](def.resolved || true);
+				promise.resolve(def.resolved || true);
 			},
 			function (ex) {
-				promise['reject'](ex);
+				promise.reject(ex);
 			}
 		);
 
 	}
 
-	function testGlobalVar (varName) {
-		try {
-			return eval('global.' + varName);
+	return {
+
+		// the !options force us to cache ids in the plugin and provide normalize
+		'dynamic': true,
+
+		'normalize': function (id, toAbsId, config) {
+			var end = id.indexOf('!');
+			return end >= 0 ? toAbsId(id.substr(0, end)) + id.substr(end) : toAbsId(id);
+		},
+
+		'load': function (name, require, callback, config) {
+
+			var order, exportsPos, exports, prefetch, url, def, promise;
+
+			order = name.indexOf('!order') > 0; // can't be zero
+			exportsPos = name.indexOf('!exports=');
+			exports = exportsPos > 0 && name.substr(exportsPos + 9); // must be last option!
+			prefetch = 'prefetch' in config ? config['prefetch'] : true;
+			name = order || exportsPos > 0 ? name.substr(0, name.indexOf('!')) : name;
+			// add extension afterwards so js!-specific path mappings don't need extension, too
+			url = basicUtil.nameWithExt(require['toUrl'](name), 'js');
+
+			function reject (ex) {
+				(callback['error'] || function (ex) { throw ex; })(ex);
+			}
+
+			// if we've already fetched this resource, get it out of the cache
+			if (url in cache) {
+				if (cache[url] instanceof Promise) {
+					cache[url].then(callback, reject);
+				}
+				else {
+					callback(cache[url]);
+				}
+			}
+			else {
+				def = {
+					name: name,
+					url: url,
+					order: order,
+					exports: exports,
+					timeoutMsec: config['timeout']
+				};
+				cache[url] = promise = new Promise();
+				promise.then(
+					function (o) {
+						cache[url] = o;
+						callback(o);
+					},
+					reject
+				);
+
+				// if this script has to wait for another
+				// or if we're loading, but not executing it
+				if (order && !supportsAsyncFalse && waitForOrderedScript) {
+					// push onto the stack of scripts that will be fetched
+					// from cache. do this before fetch in case IE has file cached.
+					queue.push([def, promise]);
+					// if we're prefetching
+					if (prefetch) {
+						// go get the file under an unknown mime type
+						def.mimetype = 'text/cache';
+						loadScript(def,
+							// remove the fake script when loaded
+							function (el) { el && el.parentNode.removeChild(el); },
+							function () {}
+						);
+						def.mimetype = '';
+					}
+				}
+				// otherwise, just go get it
+				else {
+					waitForOrderedScript = waitForOrderedScript || order;
+					fetch(def, promise);
+				}
+			}
+
 		}
-		catch (ex) {
-			return undef;
-		}
-	}
 
-	define(/*=='js',==*/ ["./util/base"], function(basicUtil) {
-	    
-	    return {
-
-    		// the !options force us to cache ids in the plugin
-    		'dynamic': true,
-    
-    		'load': function (name, require, callback, config) {
-    
-    			var order, exportsPos, exports, prefetch, def, promise;
-    
-    			order = name.indexOf('!order') > 0; // can't be zero
-    			exportsPos = name.indexOf('!exports=');
-    			exports = exportsPos > 0 && name.substr(exportsPos + 9); // must be last option!
-    			prefetch = 'prefetch' in config ? config['prefetch'] : true;
-    			name = order || exportsPos > 0 ? name.substr(0, name.indexOf('!')) : name;
-    
-    			// if we've already fetched this resource, get it out of the cache
-    			if (name in cache) {
-    				callback(cache[name]);
-    			}
-    			else {
-    				cache[name] = undef;
-    				def = {
-    					name: name,
-    					url: require['toUrl'](basicUtil.nameWithExt(name, 'js')),
-    					order: order,
-    					exports: exports,
-    					timeoutMsec: config['timeout']
-    				};
-    				promise = {
-    					'resolve': function (o) {
-    						cache[name] = o;
-    						(callback['resolve'] || callback)(o);
-    					},
-    					'reject': callback['reject'] || function (ex) { throw ex; }
-    				};
-    
-    				// if this script has to wait for another
-    				// or if we're loading, but not executing it
-    				if (order && !supportsAsyncFalse && waitForOrderedScript) {
-    					// push onto the stack of scripts that will be fetched
-    					// from cache. do this before fetch in case IE has file cached.
-    					queue.push([def, promise]);
-    					// if we're prefetching
-    					if (prefetch) {
-    						// go get the file under an unknown mime type
-    						def.mimetype = 'text/cache';
-    						loadScript(def,
-    							// remove the fake script when loaded
-    							function (el) { el.parentNode.removeChild(el); },
-    							false
-    						);
-    						def.mimetype = '';
-    					}
-    				}
-    				// otherwise, just go get it
-    				else {
-    					waitForOrderedScript = waitForOrderedScript || order;
-    					fetch(def, promise);
-    				}
-    			}
-    
-    		}
-    
-    	};
-    	
-    });
-
-}(this, this.document));
+	};
+});
+}(
+	this,
+	this.document,
+	function () { try { return eval(arguments[0]); } catch (ex) { return; } }
+));

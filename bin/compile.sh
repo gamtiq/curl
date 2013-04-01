@@ -8,7 +8,8 @@
 
 curl \
 	--data-urlencode "js_code@$1" \
-	-d compilation_level=ADVANCED_OPTIMIZATIONS \
+	-d compilation_level=$2 \
 	-d output_info=compiled_code \
 	-d output_format=text \
+	-d 'output_wrapper=(function(){%25output%25}).call(this);' \
 	http://closure-compiler.appspot.com/compile
