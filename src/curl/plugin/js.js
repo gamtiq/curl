@@ -1,4 +1,4 @@
-/** MIT License (c) copyright B Cavalier & J Hann */
+/** MIT License (c) copyright 2010-2013 B Cavalier & J Hann */
 
 /**
  * curl js! plugin
@@ -186,7 +186,9 @@ define(/*=='curl/plugin/js',==*/ ['curl/_privileged', './util/base'], function (
 				}
 			}
 
-		}
+		},
+
+		'cramPlugin': '../cram/js'
 
 	};
 });

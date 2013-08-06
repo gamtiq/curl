@@ -1,4 +1,4 @@
-/** MIT License (c) copyright B Cavalier & J Hann */
+/** MIT License (c) copyright 2010-2013 B Cavalier & J Hann */
 
 /**
  * curl css! plugin
@@ -503,6 +503,11 @@
 		return !doc.readyState || doc.readyState == 'complete';
 	}
 
+	function nameWithExt (name, defaultExt) {
+		return name.lastIndexOf('.') <= name.lastIndexOf('/') ?
+			name + '.' + defaultExt : name;
+	}
+
 	function noop () {}
 
 	/***** finally! the actual plugin *****/
@@ -574,6 +579,10 @@
 			'pluginBuilder': './builder/css'
 			
 		};
+
+		},
+
+		'cramPlugin': '../cram/css'
 
 	});
 
