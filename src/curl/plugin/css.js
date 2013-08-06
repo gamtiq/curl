@@ -503,11 +503,6 @@
 		return !doc.readyState || doc.readyState == 'complete';
 	}
 
-	function nameWithExt (name, defaultExt) {
-		return name.lastIndexOf('.') <= name.lastIndexOf('/') ?
-			name + '.' + defaultExt : name;
-	}
-
 	function noop () {}
 
 	/***** finally! the actual plugin *****/
@@ -575,14 +570,9 @@
 	
 			},
 	
-			'plugin-builder': './builder/css',
-			'pluginBuilder': './builder/css'
+			'cramPlugin': '../cram/css'
 			
 		};
-
-		},
-
-		'cramPlugin': '../cram/css'
 
 	});
 
