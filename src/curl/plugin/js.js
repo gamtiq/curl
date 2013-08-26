@@ -36,7 +36,7 @@ define(/*=='curl/plugin/js',==*/ ['curl/_privileged', './util/base'], function (
 		supportsAsyncFalse = doc && doc.createElement('script').async == true,
 		Promise,
 		waitForOrderedScript,
-		undef;
+		dontAddExtRx = /\?|\.js\b/;
 
 	Promise = priv['Promise'];
 
@@ -119,17 +119,31 @@ define(/*=='curl/plugin/js',==*/ ['curl/_privileged', './util/base'], function (
 			return end >= 0 ? toAbsId(id.substr(0, end)) + id.substr(end) : toAbsId(id);
 		},
 
-		'load': function (name, require, callback, config) {
+		'load': function (resId, require, callback, config) {
 
-			var order, exportsPos, exports, prefetch, url, def, promise;
+			var order, exportsPos, exports, prefetch, dontAddFileExt,
+				url, def, promise;
 
-			order = name.indexOf('!order') > 0; // can't be zero
-			exportsPos = name.indexOf('!exports=');
-			exports = exportsPos > 0 && name.substr(exportsPos + 9); // must be last option!
+			order = resId.indexOf('!order') > 0; // can't be zero
+			exportsPos = resId.indexOf('!exports=');
+			exports = exportsPos > 0
+				? resId.substr(exportsPos + 9) // must be last option!
+				: config.exports;
 			prefetch = 'prefetch' in config ? config['prefetch'] : true;
-			name = order || exportsPos > 0 ? name.substr(0, name.indexOf('!')) : name;
-			// add extension afterwards so js!-specific path mappings don't need extension, too
-			url = basicUtil.nameWithExt(require['toUrl'](name), 'js');
+			resId = order || exportsPos > 0
+				? resId.substr(0, resId.indexOf('!'))
+				: resId;
+			// add extension afterwards so js!-specific path mappings don't
+			// need extension, too.
+			dontAddFileExt = config['dontAddFileExt'] || config.dontAddFileExt;
+			dontAddFileExt = dontAddFileExt
+				? new RegExp(dontAddFileExt)
+				: dontAddExtRx;
+
+			url = require['toUrl'](resId);
+			if (!dontAddFileExt.test(url)) {
+				url = basicUtil.nameWithExt(url, 'js');
+			}
 
 			function reject (ex) {
 				(callback['error'] || function (ex) { throw ex; })(ex);
@@ -146,7 +160,7 @@ define(/*=='curl/plugin/js',==*/ ['curl/_privileged', './util/base'], function (
 			}
 			else {
 				def = {
-					name: name,
+					name: resId,
 					url: url,
 					order: order,
 					exports: exports,
